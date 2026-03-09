@@ -73,7 +73,7 @@ h1, h2, h3, .stMarkdown h1 {
 }
 
 .stTextInput > label {
-    color: #a08040 !important;
+    color: #c2a366 !important;
     font-family: 'Cinzel', serif !important;
     font-size: 0.85rem !important;
     letter-spacing: 0.08em !important;
@@ -118,7 +118,7 @@ h1, h2, h3, .stMarkdown h1 {
 .card-type {
     font-family: 'Crimson Text', serif;
     font-style: italic;
-    color: #8a7850;
+    color: #b1a077;
     font-size: 1rem;
     margin-bottom: 0.8rem;
     padding-bottom: 0.8rem;
@@ -128,13 +128,13 @@ h1, h2, h3, .stMarkdown h1 {
 .card-meta {
     font-family: 'Cinzel', serif;
     font-size: 0.75rem;
-    color: #6a5a38;
+    color: #c1b08a;
     letter-spacing: 0.1em;
     text-transform: uppercase;
 }
 
 .card-meta span {
-    color: #a08040;
+    color: #c2a366;
 }
 
 .card-text {
@@ -153,7 +153,7 @@ h1, h2, h3, .stMarkdown h1 {
     font-family: 'Crimson Text', serif;
     font-style: italic;
     font-size: 0.95rem;
-    color: #6a5a38;
+    color: #c1b08a;
     margin-top: 0.5rem;
 }
 
@@ -183,7 +183,7 @@ h1, h2, h3, .stMarkdown h1 {
 .col-item-type {
     font-family: 'Crimson Text', serif;
     font-size: 0.85rem;
-    color: #6a5a38;
+    color: #c1b08a;
     font-style: italic;
 }
 
@@ -203,7 +203,7 @@ h1, h2, h3, .stMarkdown h1 {
 .section-header {
     font-family: 'Cinzel', serif;
     font-size: 1rem;
-    color: #7a6a48;
+    color: #b7a685;
     letter-spacing: 0.15em;
     text-transform: uppercase;
     border-bottom: 1px solid #2a2418;

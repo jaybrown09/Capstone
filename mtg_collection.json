@@ -1,0 +1,21 @@
+[
+  {
+    "id": "77c6fa74-5543-42ac-9ead-0e890b188e99",
+    "name": "Lightning Bolt",
+    "type_line": "Instant",
+    "set_name": "Ravnica: Clue Edition",
+    "rarity": "uncommon",
+    "mana_cost": "{R}",
+    "quantity": 1,
+    "foil": false,
+    "image": "https://cards.scryfall.io/normal/front/7/7/77c6fa74-5543-42ac-9ead-0e890b188e99.jpg?1706239968",
+    "prices": {
+      "usd": "3.00",
+      "usd_foil": null,
+      "usd_etched": null,
+      "eur": "1.37",
+      "eur_foil": null,
+      "tix": "0.02"
+    }
+  }
+]

@@ -37,8 +37,10 @@ def search_card(name: str):
     """Exact name search, fall back to fuzzy."""
     url = f"https://api.scryfall.com/cards/named?fuzzy={requests.utils.quote(name)}"
     r = requests.get(url, timeout=10)
+    # OK status code
     if r.status_code == 200:
         return r.json(), None
+    # Other status code
     data = r.json()
     return None, data.get("details", "Card not found.")
 
@@ -46,26 +48,32 @@ def search_cards_list(query: str):
     """Full-text search returning up to 10 results."""
     url = f"https://api.scryfall.com/cards/search?q={requests.utils.quote(query)}&order=name&unique=cards"
     r = requests.get(url, timeout=10)
+    # OK status code
     if r.status_code == 200:
         return r.json().get("data", [])[:10], None
+    # Other status code
     return [], r.json().get("details", "Search failed.")
 
 def get_card_image(card: dict) -> str | None:
     imgs = card.get("image_uris", {})
+    # Single-faced cards
     if imgs:
         return imgs.get("normal") or imgs.get("large")
     # Double-faced cards
     faces = card.get("card_faces", [])
     if faces and "image_uris" in faces[0]:
         return faces[0]["image_uris"].get("normal")
+    # No image found
     return None
 
 def format_oracle(card: dict) -> str:
     text = card.get("oracle_text", "")
+    # Double-faced cards
     if not text:
         faces = card.get("card_faces", [])
         if faces:
             text = "\n//\n".join(f.get("oracle_text", "") for f in faces)
+    # Single-faced cards / No oracle text found
     return text
 
 def rarity_class(rarity: str) -> str:
@@ -79,7 +87,7 @@ if "current_card" not in st.session_state:
 if "search_results" not in st.session_state:
     st.session_state.search_results = []
 
-# Header
+# Main header
 st.markdown('<div class="main-title">SmartBinder</div>', unsafe_allow_html=True)
 
 # Layout
@@ -89,10 +97,13 @@ left, right = st.columns([3, 2], gap="large")
 # LEFT: Search & Card Display
 # ════════════════════════════════════════════════════════════════════════════
 with left:
+    # Card Search header
     st.markdown('<div class="section-header">Card Search</div>', unsafe_allow_html=True)
 
+    # Search input
     search_query = st.text_input("Card name or search query", placeholder="e.g. Black Lotus, lightning bolt, dragon...")
 
+    # Search / Random Card buttons
     col_a, col_b = st.columns([1, 1])
     with col_a:
         search_btn = st.button("🔍 Search", use_container_width=True)
@@ -138,34 +149,44 @@ with left:
         st.markdown("---")
         img_col, info_col = st.columns([1, 1.3], gap="medium")
 
+        # Image
         with img_col:
             img_url = get_card_image(card)
             if img_url:
                 st.image(img_url, use_container_width=True)
 
+        # Info
         with info_col:
+            # Name
             st.markdown(f'<div class="card-name">{card["name"]}</div>', unsafe_allow_html=True)
 
+            # Mana cost
             mana = card.get("mana_cost", "")
             if mana:
                 st.markdown(f'<span class="mana-cost">{mana}</span>', unsafe_allow_html=True)
 
+            # Card Type
             st.markdown(f'<div class="card-type">{card.get("type_line","")}</div>', unsafe_allow_html=True)
 
+            # Card Text
             oracle = format_oracle(card)
             if oracle:
                 for line in oracle.split("\n"):
                     if line.strip():
                         st.markdown(f'<div class="card-text">{line}</div>', unsafe_allow_html=True)
 
+            # Flavor text
             flavor = card.get("flavor_text", "")
+            # Double-faced cards
             if not flavor:
                 faces = card.get("card_faces", [])
                 if faces:
                     flavor = faces[0].get("flavor_text", "")
+            # Single-faced cards
             if flavor:
                 st.markdown(f'<div class="flavor-text">"{flavor}"</div>', unsafe_allow_html=True)
 
+            # Additional info
             rarity = card.get("rarity", "common")
             set_name = card.get("set_name", "")
             power = card.get("power")
@@ -233,20 +254,24 @@ with right:
     coll = st.session_state.collection
     total_cards = sum(c["quantity"] for c in coll)
 
+    # Collection header
     st.markdown(f'<div class="section-header">MTG Collection &nbsp;<span style="color:#c9a84c;font-size:0.8em;">({len(coll)} unique · {total_cards} total)</span></div>', unsafe_allow_html=True)
 
     if not coll:
+        # Empty collection
         st.markdown('<div style="color:#4a3a28;font-family:\'Crimson Text\',serif;font-style:italic;padding:1rem 0;">Your collection is empty. Search for cards and add them above.</div>', unsafe_allow_html=True)
     else:
         # Filter / sort controls
         fc1, fc2 = st.columns(2)
         with fc1:
-            filter_text = st.text_input("Filter by name", placeholder="Filter...", key="filter_input", label_visibility="collapsed")
+            filter_text = st.text_input("Filter by name", placeholder="Filter...", key="filter_input")
         with fc2:
-            sort_by = st.selectbox("Sort", ["Name", "Rarity", "Set", "Quantity"], label_visibility="collapsed")
+            sort_by = st.selectbox("Sort", ["Name", "Rarity", "Set", "Quantity"])
 
+        # Filter collection
         filtered = [c for c in coll if filter_text.lower() in c["name"].lower()] if filter_text else coll[:]
 
+        # Sort collection
         rarity_order = {"mythic": 0, "rare": 1, "uncommon": 2, "common": 3, "special": 4, "bonus": 5}
         if sort_by == "Name":
             filtered.sort(key=lambda c: c["name"])
@@ -271,11 +296,13 @@ with right:
 
         # List items
         for i, item in enumerate(filtered):
+            # Rarity / Foil
             rarity = item.get("rarity", "common")
             foil_tag = " ✦" if item.get("foil") else ""
             r_class = rarity_class(rarity)
 
             col1, col2 = st.columns([4, 1])
+            # Card info
             with col1:
                 st.markdown(f"""
                     <div class="collection-item">
@@ -286,6 +313,7 @@ with right:
                         <div style="margin-left:auto;font-family:'Cinzel',serif;color:#c9a84c;font-size:1.1rem;white-space:nowrap;">×{item['quantity']}</div>
                     </div>
                 """, unsafe_allow_html=True)
+            # Remove from collection
             with col2:
                 # Find actual index in full collection for removal
                 actual_idx = next((j for j, c in enumerate(st.session_state.collection) if c["id"] == item["id"] and c["foil"] == item.get("foil")), None)

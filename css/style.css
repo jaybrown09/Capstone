@@ -207,6 +207,13 @@ h1, h2, h3, .stMarkdown h1 {
     color: #e8d5a0 !important;
 }
 
+.stSelectbox > label {
+    color: #c2a366 !important;
+    font-family: 'Cinzel', serif !important;
+    font-size: 0.85rem !important;
+    letter-spacing: 0.08em !important;
+}
+
 /* Divider */
 hr {
     border-color: #2a2418 !important;

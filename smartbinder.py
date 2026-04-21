@@ -1,9 +1,12 @@
 import streamlit as st
 import requests
-import json
-import os
+from PIL import Image
 
 # run with: python -m streamlit run smartbinder.py
+
+from auth import require_auth, current_user
+from supabase_client import get_collection, add_to_collection, remove_from_collection
+from ocr import scan_card_image
 
 # Page config
 st.set_page_config(
@@ -19,91 +22,73 @@ def local_css(file_name):
 
 local_css("css/style.css")
 
-# Collection JSON
-COLLECTION_FILE = "mtg_collection.json"
+# ── Auth gate — nothing below renders until the user is signed in ─────────────
+require_auth()
+user = current_user()
 
-def load_collection():
-    if os.path.exists(COLLECTION_FILE):
-        with open(COLLECTION_FILE, "r") as f:
-            return json.load(f)
-    return []
 
-def save_collection(collection):
-    with open(COLLECTION_FILE, "w") as f:
-        json.dump(collection, f, indent=2)
-
-# Scryfall helpers
-def search_card(name: str):
-    """Exact name search, fall back to fuzzy."""
-    url = f"https://api.scryfall.com/cards/named?fuzzy={requests.utils.quote(name)}"
-    r = requests.get(url, timeout=10)
-    # OK status code
-    if r.status_code == 200:
-        return r.json(), None
-    # Other status code
-    data = r.json()
-    return None, data.get("details", "Card not found.")
+# ── Scryfall helpers ──────────────────────────────────────────────────────────
 
 def search_cards_list(query: str):
     """Full-text search returning up to 10 results."""
     url = f"https://api.scryfall.com/cards/search?q={requests.utils.quote(query)}&order=name&unique=cards"
     r = requests.get(url, timeout=10)
-    # OK status code
     if r.status_code == 200:
         return r.json().get("data", [])[:10], None
-    # Other status code
     return [], r.json().get("details", "Search failed.")
 
 def get_card_image(card: dict) -> str | None:
     imgs = card.get("image_uris", {})
-    # Single-faced cards
     if imgs:
         return imgs.get("normal") or imgs.get("large")
-    # Double-faced cards
     faces = card.get("card_faces", [])
     if faces and "image_uris" in faces[0]:
         return faces[0]["image_uris"].get("normal")
-    # No image found
     return None
 
 def format_oracle(card: dict) -> str:
     text = card.get("oracle_text", "")
-    # Double-faced cards
     if not text:
         faces = card.get("card_faces", [])
         if faces:
             text = "\n//\n".join(f.get("oracle_text", "") for f in faces)
-    # Single-faced cards / No oracle text found
     return text
 
 def rarity_class(rarity: str) -> str:
     return f"rarity-{rarity.lower()}"
 
-# Session state
-if "collection" not in st.session_state:
-    st.session_state.collection = load_collection()
+
+# ── Session state ─────────────────────────────────────────────────────────────
+
 if "current_card" not in st.session_state:
     st.session_state.current_card = None
 if "search_results" not in st.session_state:
     st.session_state.search_results = []
+if "scan_ocr_text" not in st.session_state:
+    st.session_state.scan_ocr_text = ""
+# Load collection fresh from DB on first render
+if "collection" not in st.session_state:
+    coll, err = get_collection(user["id"])
+    st.session_state.collection = coll if not err else []
 
-# Main header
+
+# ── Main header ───────────────────────────────────────────────────────────────
 st.markdown('<div class="main-title">SmartBinder</div>', unsafe_allow_html=True)
 
-# Layout
+# ── Layout ────────────────────────────────────────────────────────────────────
 left, right = st.columns([3, 2], gap="large")
 
+
 # ════════════════════════════════════════════════════════════════════════════
-# LEFT: Search & Card Display
+# LEFT: Search, Scan & Card Display
 # ════════════════════════════════════════════════════════════════════════════
 with left:
-    # Card Search header
+
+    # ── Search section ────────────────────────────────────────────────────────
     st.markdown('<div class="section-header">Card Search</div>', unsafe_allow_html=True)
 
-    # Search input
     search_query = st.text_input("Card name or search query", placeholder="e.g. Black Lotus, lightning bolt, dragon...")
 
-    # Search / Random Card buttons
     col_a, col_b = st.columns([1, 1])
     with col_a:
         search_btn = st.button("🔍 Search", use_container_width=True)
@@ -143,50 +128,89 @@ with left:
             st.session_state.current_card = st.session_state.search_results[idx]
             st.session_state.search_results = []
 
-    # Card display
+    st.markdown("---")
+
+    # ── OCR Scan section ──────────────────────────────────────────────────────
+    st.markdown('<div class="section-header">📷 Scan a Card</div>', unsafe_allow_html=True)
+    st.markdown(
+        '<div style="color:#4a3a28;font-family:\'Crimson Text\',serif;font-size:0.9rem;margin-bottom:0.6rem;">'
+        'Point your camera at the card — keep it flat, well-lit, and unobstructed.'
+        '</div>',
+        unsafe_allow_html=True,
+    )
+
+    # Camera input — returns an UploadedFile (bytes-like) or None
+    camera_image = st.camera_input("Capture card", label_visibility="collapsed")
+
+    # Fallback: upload a photo if camera isn't available
+    uploaded_image = st.file_uploader(
+        "Or upload a card photo",
+        type=["jpg", "jpeg", "png", "webp"],
+        label_visibility="visible",
+    )
+
+    scan_btn = st.button("🔎 Scan Card", use_container_width=True)
+
+    if scan_btn:
+        raw_image = camera_image or uploaded_image
+        if raw_image is None:
+            st.warning("Capture or upload a card photo first.")
+        else:
+            with st.spinner("Reading the runes..."):
+                pil_image = Image.open(raw_image)
+                card, ocr_text, err = scan_card_image(pil_image)
+
+            if err:
+                st.error(err)
+                # Surface raw OCR text so the user can correct and search manually
+                if ocr_text:
+                    st.markdown(
+                        f'<div style="color:#4a3a28;font-size:0.85rem;margin-top:0.4rem;">'
+                        f'OCR read: <strong>{ocr_text}</strong> — try searching for it manually above.'
+                        f'</div>',
+                        unsafe_allow_html=True,
+                    )
+            else:
+                st.session_state.current_card = card
+                st.session_state.search_results = []
+                st.session_state.scan_ocr_text = ocr_text
+                st.success(f'Scanned: **{card["name"]}**  _(OCR read: "{ocr_text}")_')
+
+    st.markdown("---")
+
+    # ── Card display ──────────────────────────────────────────────────────────
     card = st.session_state.current_card
     if card:
-        st.markdown("---")
         img_col, info_col = st.columns([1, 1.3], gap="medium")
 
-        # Image
         with img_col:
             img_url = get_card_image(card)
             if img_url:
                 st.image(img_url, use_container_width=True)
 
-        # Info
         with info_col:
-            # Name
             st.markdown(f'<div class="card-name">{card["name"]}</div>', unsafe_allow_html=True)
 
-            # Mana cost
             mana = card.get("mana_cost", "")
             if mana:
                 st.markdown(f'<span class="mana-cost">{mana}</span>', unsafe_allow_html=True)
 
-            # Card Type
             st.markdown(f'<div class="card-type">{card.get("type_line","")}</div>', unsafe_allow_html=True)
 
-            # Card Text
             oracle = format_oracle(card)
             if oracle:
                 for line in oracle.split("\n"):
                     if line.strip():
                         st.markdown(f'<div class="card-text">{line}</div>', unsafe_allow_html=True)
 
-            # Flavor text
             flavor = card.get("flavor_text", "")
-            # Double-faced cards
             if not flavor:
                 faces = card.get("card_faces", [])
                 if faces:
                     flavor = faces[0].get("flavor_text", "")
-            # Single-faced cards
             if flavor:
                 st.markdown(f'<div class="flavor-text">"{flavor}"</div>', unsafe_allow_html=True)
 
-            # Additional info
             rarity = card.get("rarity", "common")
             set_name = card.get("set_name", "")
             power = card.get("power")
@@ -203,7 +227,6 @@ with left:
                 </div>
             """, unsafe_allow_html=True)
 
-            # Prices
             prices = card.get("prices", {})
             usd = prices.get("usd")
             usd_foil = prices.get("usd_foil")
@@ -217,35 +240,20 @@ with left:
 
             st.markdown("<br>", unsafe_allow_html=True)
 
-            # Add to collection controls
-            qty = st.number_input("Quantity", min_value=1, max_value=99, value=1, key="qty_input")
+            qty  = st.number_input("Quantity", min_value=1, max_value=99, value=1, key="qty_input")
             foil = st.checkbox("Foil", key="foil_input")
 
             if st.button("＋ Add to Collection", use_container_width=True):
-                entry = {
-                    "id": card["id"],
-                    "name": card["name"],
-                    "type_line": card.get("type_line", ""),
-                    "set_name": card.get("set_name", ""),
-                    "rarity": rarity,
-                    "mana_cost": mana,
-                    "quantity": qty,
-                    "foil": foil,
-                    "image": get_card_image(card),
-                    "prices": prices,
-                }
-                # Check if same card+foil already in collection
-                found = False
-                for item in st.session_state.collection:
-                    if item["id"] == entry["id"] and item["foil"] == foil:
-                        item["quantity"] += qty
-                        found = True
-                        break
-                if not found:
-                    st.session_state.collection.append(entry)
-                save_collection(st.session_state.collection)
-                label = "foil " if foil else ""
-                st.success(f"Added {qty}× {label}{card['name']} to your collection!")
+                with st.spinner("Saving..."):
+                    err = add_to_collection(user["id"], card, qty, foil)
+                if err:
+                    st.error(f"Could not add card: {err}")
+                else:
+                    coll, _ = get_collection(user["id"])
+                    st.session_state.collection = coll
+                    label = "foil " if foil else ""
+                    st.success(f"Added {qty}× {label}{card['name']} to your collection!")
+
 
 # ════════════════════════════════════════════════════════════════════════════
 # RIGHT: Collection
@@ -254,24 +262,19 @@ with right:
     coll = st.session_state.collection
     total_cards = sum(c["quantity"] for c in coll)
 
-    # Collection header
     st.markdown(f'<div class="section-header">MTG Collection &nbsp;<span style="color:#c9a84c;font-size:0.8em;">({len(coll)} unique · {total_cards} total)</span></div>', unsafe_allow_html=True)
 
     if not coll:
-        # Empty collection
-        st.markdown('<div style="color:#b69977;font-family:\'Crimson Text\',serif;font-style:italic;padding:1rem 0;">Your collection is empty. Search for cards and add them above.</div>', unsafe_allow_html=True)
+        st.markdown('<div style="color:#4a3a28;font-family:\'Crimson Text\',serif;font-style:italic;padding:1rem 0;">Your collection is empty. Search for cards and add them above.</div>', unsafe_allow_html=True)
     else:
-        # Filter / sort controls
         fc1, fc2 = st.columns(2)
         with fc1:
             filter_text = st.text_input("Filter by name", placeholder="Filter...", key="filter_input")
         with fc2:
             sort_by = st.selectbox("Sort", ["Name", "Rarity", "Set", "Quantity"])
 
-        # Filter collection
         filtered = [c for c in coll if filter_text.lower() in c["name"].lower()] if filter_text else coll[:]
 
-        # Sort collection
         rarity_order = {"mythic": 0, "rare": 1, "uncommon": 2, "common": 3, "special": 4, "bonus": 5}
         if sort_by == "Name":
             filtered.sort(key=lambda c: c["name"])
@@ -296,13 +299,11 @@ with right:
 
         # List items
         for i, item in enumerate(filtered):
-            # Rarity / Foil
-            rarity = item.get("rarity", "common")
+            rarity  = item.get("rarity", "common")
             foil_tag = " ✦" if item.get("foil") else ""
-            r_class = rarity_class(rarity)
+            r_class  = rarity_class(rarity)
 
             col1, col2 = st.columns([4, 1])
-            # Card info
             with col1:
                 st.markdown(f"""
                     <div class="collection-item">
@@ -313,19 +314,21 @@ with right:
                         <div style="margin-left:auto;font-family:'Cinzel',serif;color:#c9a84c;font-size:1.1rem;white-space:nowrap;">×{item['quantity']}</div>
                     </div>
                 """, unsafe_allow_html=True)
-            # Remove from collection
             with col2:
-                # Find actual index in full collection for removal
-                actual_idx = next((j for j, c in enumerate(st.session_state.collection) if c["id"] == item["id"] and c["foil"] == item.get("foil")), None)
-                if actual_idx is not None:
-                    if st.button("✕", key=f"del_{item['id']}_{i}", help="Remove from collection"):
-                        st.session_state.collection.pop(actual_idx)
-                        save_collection(st.session_state.collection)
+                if st.button("✕", key=f"del_{item['id']}_{i}", help="Remove from collection"):
+                    with st.spinner("Removing..."):
+                        err = remove_from_collection(item["collection_id"])
+                    if err:
+                        st.error(f"Could not remove card: {err}")
+                    else:
+                        coll2, _ = get_collection(user["id"])
+                        st.session_state.collection = coll2
                         st.rerun()
 
         # Export
         st.markdown("---")
         if st.button("📋 Export Collection (JSON)", use_container_width=True):
+            import json
             st.download_button(
                 label="⬇ Download JSON",
                 data=json.dumps(st.session_state.collection, indent=2),

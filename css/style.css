@@ -102,7 +102,7 @@ h1, h2, h3, .stMarkdown h1 {
     font-family: 'Crimson Text', serif;
     font-style: italic;
     color: #b1a077;
-    font-size: 1rem;
+    font-size: 1.2rem;
     margin-bottom: 0.8rem;
     padding-bottom: 0.8rem;
     border-bottom: 1px solid #2a2418;
@@ -110,7 +110,7 @@ h1, h2, h3, .stMarkdown h1 {
 
 .card-meta {
     font-family: 'Cinzel', serif;
-    font-size: 0.75rem;
+    font-size: 0.9rem;
     color: #c1b08a;
     letter-spacing: 0.1em;
     text-transform: uppercase;
@@ -135,7 +135,7 @@ h1, h2, h3, .stMarkdown h1 {
 .flavor-text {
     font-family: 'Crimson Text', serif;
     font-style: italic;
-    font-size: 0.95rem;
+    font-size: 1.05rem;
     color: #c1b08a;
     margin-top: 0.5rem;
 }
@@ -159,13 +159,13 @@ h1, h2, h3, .stMarkdown h1 {
 
 .col-item-name {
     font-family: 'Cinzel', serif;
-    font-size: 0.95rem;
+    font-size: 1.05rem;
     color: #e8d5a0;
 }
 
 .col-item-type {
     font-family: 'Crimson Text', serif;
-    font-size: 0.85rem;
+    font-size: 0.95rem;
     color: #c1b08a;
     font-style: italic;
 }
@@ -185,7 +185,7 @@ h1, h2, h3, .stMarkdown h1 {
 /* Section headers */
 .section-header {
     font-family: 'Cinzel', serif;
-    font-size: 1rem;
+    font-size: 1.2rem;
     color: #b7a685;
     letter-spacing: 0.15em;
     text-transform: uppercase;
@@ -212,6 +212,35 @@ h1, h2, h3, .stMarkdown h1 {
     font-family: 'Cinzel', serif !important;
     font-size: 0.85rem !important;
     letter-spacing: 0.08em !important;
+}
+
+/* Number input styling */
+
+.stNumberInput > label {
+	color: #c2a366 !important;
+}
+
+.stNumberInput > div {
+    background: #1a1a20 !important;
+    border-color: #3a3020 !important;
+}
+
+.stNumberInput > div > div > div > input {
+	color: #e8d5a0 !important;
+}
+
+.stNumberInput > div > div > button {
+	color: #e8d5a0 !important;
+}
+
+.stNumberInput > div > div > button:hover:enabled, .stNumberInput > div > div > button:focus:enabled {
+	background: #3a3020 !important;
+}
+
+/* Checkbox styling */
+
+.stCheckbox > label > div > div > div {
+	color: #e8d5a0 !important;
 }
 
 /* Divider */

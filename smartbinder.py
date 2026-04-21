@@ -259,7 +259,7 @@ with right:
 
     if not coll:
         # Empty collection
-        st.markdown('<div style="color:#4a3a28;font-family:\'Crimson Text\',serif;font-style:italic;padding:1rem 0;">Your collection is empty. Search for cards and add them above.</div>', unsafe_allow_html=True)
+        st.markdown('<div style="color:#b69977;font-family:\'Crimson Text\',serif;font-style:italic;padding:1rem 0;">Your collection is empty. Search for cards and add them above.</div>', unsafe_allow_html=True)
     else:
         # Filter / sort controls
         fc1, fc2 = st.columns(2)

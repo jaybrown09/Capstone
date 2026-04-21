@@ -12,8 +12,10 @@ import requests
 from typing import Optional
 from PIL import Image, ImageFilter, ImageEnhance
 import pytesseract
+import os
 
-pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
+if os_name == 'nt':
+    pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
 
 # ── Image Preprocessing ───────────────────────────────────────────────────────
 

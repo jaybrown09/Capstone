@@ -45,7 +45,7 @@ def find_card_crop(pil_image: Image.Image) -> Image.Image:
 
         # Sanity check: the bounding box should be at least 10% of the image
         img_area = pil_image.width * pil_image.height
-        if w * h > img_area * 0.10:
+        if w * h > img_area * 0.10 and w * h < img_area * 0.85:
             return pil_image.crop((x, y, x + w, y + h))
 
     # Fallback: return the original image unchanged
@@ -91,9 +91,9 @@ def preprocess_image(image: Image.Image) -> Image.Image:
     # Step 2: Crop the name strip from the detected card region
     # MTG name bar sits roughly in the top 10% of the card, left ~85% of width
     name_strip = image.crop((
-        int(w * 0.03),
+        int(w * 0.07),
         int(h * 0.02),
-        int(w * 0.85),   # wider — was 0.70, which cut off long names
+        int(w * 0.78),
         int(h * 0.11),
     ))
 

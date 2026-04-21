@@ -14,7 +14,7 @@ from PIL import Image, ImageFilter, ImageEnhance
 import pytesseract
 import os
 
-if os_name == 'nt':
+if os.name == 'nt':
     pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
 
 # ── Image Preprocessing ───────────────────────────────────────────────────────

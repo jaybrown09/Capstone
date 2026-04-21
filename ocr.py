@@ -97,9 +97,9 @@ def preprocess_image(image: Image.Image) -> Image.Image:
     # Push left boundary in to avoid left-edge decoration bleeding in.
     # Pull right boundary back to avoid mana cost symbols on the right.
     name_strip = image.crop((
-        int(w * 0.10),   # further in — avoids left border art/icon
+        int(w * 0.10),
         int(h * 0.03),
-        int(w * 0.75),   # pulled back — avoids mana cost symbols
+        int(w * 0.75),
         int(h * 0.10),
     ))
 

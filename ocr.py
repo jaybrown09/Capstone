@@ -141,8 +141,6 @@ def extract_card_name(image: Image.Image) -> tuple[str, Optional[str]]:
     try:
         processed = preprocess_image(image)
 
-        # Backslash-space forces the space character through Tesseract's config
-        # parser without it being silently stripped.
         config = "--psm 7 --oem 3 -c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789\\ "
 
         # Pass 1: normal image

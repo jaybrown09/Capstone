@@ -139,6 +139,71 @@ with left:
         unsafe_allow_html=True,
     )
 
+    # Camera Highlight to assist positioning
+    st.markdown("""
+        <div style="
+            position: relative;
+            background: #1a1a2e;
+            border: 1px solid #c9a84c;
+            border-radius: 8px;
+            padding: 10px;
+            margin-bottom: 10px;
+            font-family: 'Crimson Text', serif;
+            color: #c9a84c;
+            font-size: 0.85rem;
+        ">
+            <div style="display:flex; align-items:center; gap:12px;">
+                <div style="
+                    width: 120px;
+                    height: 80px;
+                    border: 2px solid #555;
+                    border-radius: 4px;
+                    position: relative;
+                    flex-shrink: 0;
+                    background: #111;
+                ">
+                    <!-- name bar highlight -->
+                    <div style="
+                        position: absolute;
+                        top: 6%;
+                        left: 3%;
+                        width: 67%;
+                        height: 14%;
+                        background: rgba(201,168,76,0.4);
+                        border: 1px solid #c9a84c;
+                        border-radius: 2px;
+                    "></div>
+                    <!-- card art area -->
+                    <div style="
+                        position: absolute;
+                        top: 22%;
+                        left: 5%;
+                        width: 90%;
+                        height: 45%;
+                        background: #2a2a2a;
+                        border-radius: 2px;
+                    "></div>
+                    <!-- card text area -->
+                    <div style="
+                        position: absolute;
+                        top: 70%;
+                        left: 5%;
+                        width: 90%;
+                        height: 25%;
+                        background: #2a2a2a;
+                        border-radius: 2px;
+                    "></div>
+                </div>
+                <div>
+                    <div style="margin-bottom:4px;">👆 The <span style="color:#c9a84c;font-weight:bold;">highlighted zone</span> is what gets scanned</div>
+                    <div style="margin-bottom:4px;">• Fill the frame with the card</div>
+                    <div style="margin-bottom:4px;">• Keep the name bar horizontal</div>
+                    <div>• Get close — name text should be clearly readable</div>
+                </div>
+            </div>
+        </div>
+    """, unsafe_allow_html=True)
+
     # Camera input — returns an UploadedFile (bytes-like) or None
     camera_image = st.camera_input("Capture card", label_visibility="collapsed")
 

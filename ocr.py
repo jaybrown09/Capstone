@@ -10,7 +10,7 @@ from __future__ import annotations
 import re
 import requests
 from typing import Optional
-from PIL import Image, ImageFilter, ImageEnhance
+from PIL import Image, ImageFilter, ImageEnhance, ExifTags
 import pytesseract
 import os
 
@@ -20,35 +20,38 @@ if os.name == 'nt':
 # ── Image Preprocessing ───────────────────────────────────────────────────────
 
 def preprocess_image(image: Image.Image) -> Image.Image:
-    """
-    Prepare a raw card photo for OCR.
-    Steps: crop name strip → grayscale → contrast boost → sharpen.
-    """
+    # Fix EXIF rotation (iPhone photos are often sideways)
+    try:
+        for orientation in ExifTags.TAGS.keys():
+            if ExifTags.TAGS[orientation] == 'Orientation':
+                break
+        exif = image._getexif()
+        if exif and orientation in exif:
+            if exif[orientation] == 3:
+                image = image.rotate(180, expand=True)
+            elif exif[orientation] == 6:
+                image = image.rotate(270, expand=True)
+            elif exif[orientation] == 8:
+                image = image.rotate(90, expand=True)
+    except Exception:
+        pass
+
     w, h = image.size
 
-    # Crop to the top ~14% of the card where the name bar lives.
-    # MTG cards follow a consistent layout so this is reliable.
     name_strip = image.crop((
-        int(w * 0.03),   # left  — skip border
-        int(h * 0.02),   # top   — skip border
-        int(w * 0.70),   # right — stop before mana cost symbols (top-right)
-        int(h * 0.12),   # bottom
+        int(w * 0.03),
+        int(h * 0.02),
+        int(w * 0.70),
+        int(h * 0.12),
     ))
 
-    # Scale up — Tesseract performs significantly better on larger images
     scale = 4
     name_strip = name_strip.resize(
         (name_strip.width * scale, name_strip.height * scale),
         Image.LANCZOS,
     )
-
-    # Grayscale
     name_strip = name_strip.convert("L")
-
-    # Boost contrast so the text pops against the card's textured background
     name_strip = ImageEnhance.Contrast(name_strip).enhance(3.0)
-
-    # Sharpen edges
     name_strip = name_strip.filter(ImageFilter.SHARPEN)
 
     return name_strip

@@ -152,14 +152,13 @@ def resolve_card_name(name: str) -> tuple[Optional[dict], Optional[str]]:
 # ── Public entry point ────────────────────────────────────────────────────────
 
 def scan_card_image(image: Image.Image) -> tuple[Optional[dict], str, Optional[str]]:
-    """
-    Full pipeline: PIL image → Scryfall card object.
-    Returns (card_dict, ocr_raw_text, error_message).
-    card_dict is None on any failure.
-    """
     name, err = extract_card_name(image)
     if err:
         return None, name, err
+
+    # Reject if OCR result looks like noise
+    if len(name.strip()) < 4 or len(name.strip().split()) > 6:
+        return None, name, "Couldn't read the card name clearly. Try holding it closer and flatter."
 
     card, err = resolve_card_name(name)
     return card, name, err

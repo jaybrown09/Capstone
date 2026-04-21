@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import re
 import requests
+import numpy as np
+import cv2
 from typing import Optional
 from PIL import Image, ImageFilter, ImageEnhance, ExifTags
 import pytesseract
@@ -16,6 +18,51 @@ import os
 
 if os.name == 'nt':
     pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
+
+
+# ── Card Detection ────────────────────────────────────────────────────────────
+
+def find_card_crop(pil_image: Image.Image) -> Image.Image:
+    """
+    Use OpenCV edge detection to find the largest rectangular contour
+    (the card) in the photo and crop to it. Falls back to the original
+    image if no suitable contour is found.
+    """
+    img = np.array(pil_image.convert("RGB"))
+    gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
+    blurred = cv2.GaussianBlur(gray, (5, 5), 0)
+    edges = cv2.Canny(blurred, 50, 150)
+
+    # Dilate edges slightly to close small gaps in the card border
+    kernel = np.ones((3, 3), np.uint8)
+    edges = cv2.dilate(edges, kernel, iterations=1)
+
+    contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    if contours:
+        # Find the largest contour by area — almost always the card
+        largest = max(contours, key=cv2.contourArea)
+        x, y, w, h = cv2.boundingRect(largest)
+
+        # Sanity check: the bounding box should be at least 10% of the image
+        img_area = pil_image.width * pil_image.height
+        if w * h > img_area * 0.10:
+            return pil_image.crop((x, y, x + w, y + h))
+
+    # Fallback: return the original image unchanged
+    return pil_image
+
+
+# ── Glare Removal ─────────────────────────────────────────────────────────────
+
+def remove_glare(img: Image.Image) -> Image.Image:
+    """
+    Clip very bright pixels to reduce specular hotspots on foil/glossy cards.
+    Works on a greyscale PIL image.
+    """
+    arr = np.array(img)
+    arr = np.clip(arr, 0, 220)
+    return Image.fromarray(arr.astype(np.uint8))
+
 
 # ── Image Preprocessing ───────────────────────────────────────────────────────
 
@@ -36,23 +83,45 @@ def preprocess_image(image: Image.Image) -> Image.Image:
     except Exception:
         pass
 
+    # Step 1: Detect and crop to just the card itself
+    image = find_card_crop(image)
+
     w, h = image.size
 
+    # Step 2: Crop the name strip from the detected card region
+    # MTG name bar sits roughly in the top 10% of the card, left ~85% of width
     name_strip = image.crop((
         int(w * 0.03),
         int(h * 0.02),
-        int(w * 0.70),
-        int(h * 0.12),
+        int(w * 0.85),   # wider — was 0.70, which cut off long names
+        int(h * 0.11),
     ))
 
+    # Step 3: Upscale for better OCR resolution
     scale = 4
     name_strip = name_strip.resize(
         (name_strip.width * scale, name_strip.height * scale),
         Image.LANCZOS,
     )
+
+    # Step 4: Convert to greyscale
     name_strip = name_strip.convert("L")
+
+    # Step 5: Remove glare before contrast adjustment
+    name_strip = remove_glare(name_strip)
+
+    # Step 6: Boost contrast
     name_strip = ImageEnhance.Contrast(name_strip).enhance(3.0)
+
+    # Step 7: Sharpen
     name_strip = name_strip.filter(ImageFilter.SHARPEN)
+
+    # Step 8: Binarize — converts to clean black-and-white for Tesseract
+    # Threshold of 140 works well for most cards; foils may need lower (~120)
+    name_strip = name_strip.point(lambda x: 0 if x < 140 else 255, '1')
+
+    # Convert back to 'L' mode — pytesseract doesn't accept mode '1' reliably
+    name_strip = name_strip.convert("L")
 
     return name_strip
 
@@ -67,12 +136,13 @@ def extract_card_name(image: Image.Image) -> tuple[str, Optional[str]]:
     try:
         processed = preprocess_image(image)
 
-        # psm 7 = treat image as a single text line (the name bar)
-        # Whitelist: characters that appear in real MTG card names
+        # psm 6 = uniform block of text — more forgiving than psm 7 (single line)
+        # for slightly angled or multi-word names.
+        # Whitelist: characters that appear in real MTG card names.
+        # Note: digits included for cards like "Borrowing 100,000 Arrows".
         config = (
-            r'--psm 7 --oem 3 '
-            r'-c tessedit_char_whitelist='
-            r'"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz ,\'-"'
+            r'--psm 6 --oem 3 '
+            r"-c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 ,'- "
         )
         raw = pytesseract.image_to_string(processed, config=config)
 
@@ -96,10 +166,12 @@ def extract_card_name(image: Image.Image) -> tuple[str, Optional[str]]:
 def _clean_ocr_output(raw: str) -> str:
     """Strip noise from Tesseract output and return a normalised card name."""
     text = raw.strip()
-    # Keep only characters that appear in real MTG card names
-    text = re.sub(r"[^A-Za-z ,'\-]", "", text)
+    # Keep only characters that appear in real MTG card names (including digits)
+    text = re.sub(r"[^A-Za-z0-9 ,'\-]", "", text)
     # Collapse multiple spaces
     text = re.sub(r" +", " ", text).strip()
+    # Take only the first line — PSM 6 may return multiple lines; the name is always first
+    text = text.splitlines()[0].strip() if text else ""
     # Title-case so Scryfall fuzzy matching gets a clean signal
     return text.title()
 
@@ -132,7 +204,7 @@ def resolve_card_name(name: str) -> tuple[Optional[dict], Optional[str]]:
     except requests.RequestException as e:
         return None, f"Network error: {e}"
 
-    # ── Attempt 2: full-text search fallback ──────────────────────────────────
+    # ── Attempt 2: full-text search fallback ─────────────────────────────────
     try:
         r = requests.get(
             "https://api.scryfall.com/cards/search",
@@ -157,7 +229,7 @@ def scan_card_image(image: Image.Image) -> tuple[Optional[dict], str, Optional[s
         return None, name, err
 
     # Reject if OCR result looks like noise
-    if len(name.strip()) < 4 or len(name.strip().split()) > 6:
+    if len(name.strip()) < 3 or len(name.strip().split()) > 8:
         return None, name, "Couldn't read the card name clearly. Try holding it closer and flatter."
 
     card, err = resolve_card_name(name)

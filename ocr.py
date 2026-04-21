@@ -118,7 +118,7 @@ def preprocess_image(image: Image.Image) -> Image.Image:
 
     # Step 8: Binarize — converts to clean black-and-white for Tesseract
     # Threshold of 140 works well for most cards; foils may need lower (~120)
-    name_strip = name_strip.point(lambda x: 0 if x < 140 else 255, '1')
+    name_strip = name_strip.point(lambda x: 0 if x < 100 else 255, '1')
 
     # Convert back to 'L' mode — pytesseract doesn't accept mode '1' reliably
     name_strip = name_strip.convert("L")
@@ -136,8 +136,8 @@ def extract_card_name(image: Image.Image) -> tuple[str, Optional[str]]:
     try:
         processed = preprocess_image(image)
         config = (
-        "--psm 6 --oem 3 "
-        "-c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
+        "--psm 7 --oem 3 "
+        "-c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 "
         )
         
         raw = pytesseract.image_to_string(processed, config=config)

@@ -23,32 +23,37 @@ if os.name == 'nt':
 # ── Card Detection ────────────────────────────────────────────────────────────
 
 def find_card_crop(pil_image: Image.Image) -> Image.Image:
-    """
-    Use OpenCV edge detection to find the largest rectangular contour
-    (the card) in the photo and crop to it. Falls back to the original
-    image if no suitable contour is found.
-    """
     img = np.array(pil_image.convert("RGB"))
     gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
     blurred = cv2.GaussianBlur(gray, (5, 5), 0)
     edges = cv2.Canny(blurred, 50, 150)
-
-    # Dilate edges slightly to close small gaps in the card border
     kernel = np.ones((3, 3), np.uint8)
     edges = cv2.dilate(edges, kernel, iterations=1)
 
     contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    if contours:
-        largest = max(contours, key=cv2.contourArea)
-        x, y, w, h = cv2.boundingRect(largest)
-
-        # Sanity check: box must be 10-85% of image area.
-        # If >85%, card fills the whole frame and contour detection is unreliable.
-        img_area = pil_image.width * pil_image.height
-        if img_area * 0.10 < w * h < img_area * 0.85:
-            return pil_image.crop((x, y, x + w, y + h))
-
-    # Fallback: return the original image unchanged
+    
+    img_area = pil_image.width * pil_image.height
+    best = None
+    best_score = float('inf')
+    
+    for c in contours:
+        x, y, w, h = cv2.boundingRect(c)
+        area = w * h
+        # Must be between 10% and 85% of image
+        if not (img_area * 0.10 < area < img_area * 0.85):
+            continue
+        # Score by how close the aspect ratio is to 5:7 (0.714)
+        ratio = w / h if h > 0 else 0
+        score = abs(ratio - 0.714)
+        if score < best_score:
+            best_score = score
+            best = (x, y, w, h)
+    
+    # Only accept if ratio is within 20% of expected
+    if best and best_score < 0.20:
+        x, y, w, h = best
+        return pil_image.crop((x, y, x + w, y + h))
+    
     return pil_image
 
 

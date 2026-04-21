@@ -20,7 +20,7 @@ if os.name == 'nt':
 # ── Image Preprocessing ───────────────────────────────────────────────────────
 
 def preprocess_image(image: Image.Image) -> Image.Image:
-    # Fix EXIF rotation (iPhone photos are often sideways)
+    # Fix EXIF rotation
     try:
         for orientation in ExifTags.TAGS.keys():
             if ExifTags.TAGS[orientation] == 'Orientation':
@@ -35,63 +35,50 @@ def preprocess_image(image: Image.Image) -> Image.Image:
                 image = image.rotate(90, expand=True)
     except Exception:
         pass
+    return image
 
-    w, h = image.size
-
-    name_strip = image.crop((
-        int(w * 0.03),
-        int(h * 0.02),
-        int(w * 0.70),
-        int(h * 0.12),
-    ))
-
-    scale = 4
-    name_strip = name_strip.resize(
-        (name_strip.width * scale, name_strip.height * scale),
-        Image.LANCZOS,
-    )
-    name_strip = name_strip.convert("L")
-    name_strip = ImageEnhance.Contrast(name_strip).enhance(3.0)
-    name_strip = name_strip.filter(ImageFilter.SHARPEN)
-
-    return name_strip
-
-
-# ── OCR Extraction ────────────────────────────────────────────────────────────
+# ── OCR Pipeline ───────────────────────────────────────────────────────
 
 def extract_card_name(image: Image.Image) -> tuple[str, Optional[str]]:
-    """
-    Run Tesseract on a raw card image.
-    Returns (extracted_name, error_message).
-    """
     try:
-        processed = preprocess_image(image)
+        image = preprocess_image(image)
+        w, h = image.size
 
-        # psm 7 = treat image as a single text line (the name bar)
-        # Whitelist: characters that appear in real MTG card names
         config = (
             r'--psm 7 --oem 3 '
             r'-c tessedit_char_whitelist='
             r'"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz ,\'-"'
         )
-        raw = pytesseract.image_to_string(processed, config=config)
 
-        cleaned = _clean_ocr_output(raw)
-        if not cleaned:
+        best = ""
+        # Scan 5 horizontal strips across the image
+        # The name bar could be anywhere depending on how the user framed the shot
+        for top_pct in [0.02, 0.10, 0.20, 0.30, 0.40]:
+            strip = image.crop((
+                int(w * 0.03),
+                int(h * top_pct),
+                int(w * 0.72),
+                int(h * (top_pct + 0.10)),
+            ))
+            strip = strip.resize((strip.width * 4, strip.height * 4), Image.LANCZOS)
+            strip = strip.convert("L")
+            strip = ImageEnhance.Contrast(strip).enhance(3.0)
+            strip = strip.filter(ImageFilter.SHARPEN)
+
+            raw = pytesseract.image_to_string(strip, config=config)
+            cleaned = _clean_ocr_output(raw)
+            # Keep the longest result — more characters = more likely a real name
+            if len(cleaned) > len(best):
+                best = cleaned
+
+        if not best:
             return "", "OCR returned no readable text. Try better lighting or a flatter angle."
-
-        return cleaned, None
+        return best, None
 
     except pytesseract.TesseractNotFoundError:
-        return "", (
-            "Tesseract is not installed or not on PATH. "
-            "Install it with: sudo apt install tesseract-ocr  (Linux) "
-            "or brew install tesseract  (macOS). "
-            "On Streamlit Cloud, add 'tesseract-ocr' to packages.txt."
-        )
+        return "", "Tesseract is not installed or not on PATH."
     except Exception as e:
         return "", f"OCR error: {e}"
-
 
 def _clean_ocr_output(raw: str) -> str:
     """Strip noise from Tesseract output and return a normalised card name."""

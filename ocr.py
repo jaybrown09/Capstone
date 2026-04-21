@@ -135,15 +135,11 @@ def extract_card_name(image: Image.Image) -> tuple[str, Optional[str]]:
     """
     try:
         processed = preprocess_image(image)
-
-        # psm 6 = uniform block of text — more forgiving than psm 7 (single line)
-        # for slightly angled or multi-word names.
-        # Whitelist: characters that appear in real MTG card names.
-        # Note: digits included for cards like "Borrowing 100,000 Arrows".
         config = (
-            r'--psm 6 --oem 3 '
-            r"-c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 ,'- "
+        "--psm 6 --oem 3 "
+        "-c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
         )
+        
         raw = pytesseract.image_to_string(processed, config=config)
 
         cleaned = _clean_ocr_output(raw)

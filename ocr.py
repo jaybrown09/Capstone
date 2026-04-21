@@ -39,13 +39,13 @@ def find_card_crop(pil_image: Image.Image) -> Image.Image:
 
     contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     if contours:
-        # Find the largest contour by area — almost always the card
         largest = max(contours, key=cv2.contourArea)
         x, y, w, h = cv2.boundingRect(largest)
 
-        # Sanity check: the bounding box should be at least 10% of the image
+        # Sanity check: box must be 10-85% of image area.
+        # If >85%, card fills the whole frame and contour detection is unreliable.
         img_area = pil_image.width * pil_image.height
-        if w * h > img_area * 0.10 and w * h < img_area * 0.85:
+        if img_area * 0.10 < w * h < img_area * 0.85:
             return pil_image.crop((x, y, x + w, y + h))
 
     # Fallback: return the original image unchanged
@@ -88,13 +88,14 @@ def preprocess_image(image: Image.Image) -> Image.Image:
 
     w, h = image.size
 
-    # Step 2: Crop the name strip from the detected card region
-    # MTG name bar sits roughly in the top 10% of the card, left ~85% of width
+    # Step 2: Crop the name strip from the detected card region.
+    # Push left boundary in to avoid left-edge decoration bleeding in.
+    # Pull right boundary back to avoid mana cost symbols on the right.
     name_strip = image.crop((
-        int(w * 0.07),
-        int(h * 0.02),
-        int(w * 0.78),
-        int(h * 0.11),
+        int(w * 0.10),   # further in — avoids left border art/icon
+        int(h * 0.03),
+        int(w * 0.75),   # pulled back — avoids mana cost symbols
+        int(h * 0.10),
     ))
 
     # Step 3: Upscale for better OCR resolution
@@ -116,8 +117,7 @@ def preprocess_image(image: Image.Image) -> Image.Image:
     # Step 7: Sharpen
     name_strip = name_strip.filter(ImageFilter.SHARPEN)
 
-    # Step 8: Binarize — converts to clean black-and-white for Tesseract
-    # Threshold of 140 works well for most cards; foils may need lower (~120)
+    # Step 8: Binarize — 100 is less aggressive than 140, preserves letter structure
     name_strip = name_strip.point(lambda x: 0 if x < 100 else 255, '1')
 
     # Convert back to 'L' mode — pytesseract doesn't accept mode '1' reliably
@@ -135,12 +135,20 @@ def extract_card_name(image: Image.Image) -> tuple[str, Optional[str]]:
     """
     try:
         processed = preprocess_image(image)
-        config = (
-        "--psm 7 --oem 3 "
-        "-c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 "
-        )
-        
-        raw = pytesseract.image_to_string(processed, config=config)
+
+        # Backslash-space forces the space character through Tesseract's config
+        # parser without it being silently stripped.
+        config = "--psm 7 --oem 3 -c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789\\ "
+
+        # Pass 1: normal image
+        raw1 = pytesseract.image_to_string(processed, config=config)
+
+        # Pass 2: inverted image — helps when card has light text on dark background
+        inverted = Image.fromarray(255 - np.array(processed))
+        raw2 = pytesseract.image_to_string(inverted, config=config)
+
+        # Pick whichever pass returned more text
+        raw = raw1 if len(raw1.strip()) >= len(raw2.strip()) else raw2
 
         cleaned = _clean_ocr_output(raw)
         if not cleaned:
@@ -166,7 +174,7 @@ def _clean_ocr_output(raw: str) -> str:
     text = re.sub(r"[^A-Za-z0-9 ,'\-]", "", text)
     # Collapse multiple spaces
     text = re.sub(r" +", " ", text).strip()
-    # Take only the first line — PSM 6 may return multiple lines; the name is always first
+    # Take only the first line — name is always the first line
     text = text.splitlines()[0].strip() if text else ""
     # Title-case so Scryfall fuzzy matching gets a clean signal
     return text.title()
@@ -184,7 +192,7 @@ def resolve_card_name(name: str) -> tuple[Optional[dict], Optional[str]]:
     if not name:
         return None, "No name to resolve."
 
-    # ── Attempt 1: fuzzy named lookup ────────────────────────────────────────
+    # Attempt 1: fuzzy named lookup
     try:
         r = requests.get(
             "https://api.scryfall.com/cards/named",
@@ -193,14 +201,13 @@ def resolve_card_name(name: str) -> tuple[Optional[dict], Optional[str]]:
         )
         if r.status_code == 200:
             return r.json(), None
-        # 404 = no fuzzy match — fall through to search
         if r.status_code != 404:
             return None, r.json().get("details", "Scryfall error.")
 
     except requests.RequestException as e:
         return None, f"Network error: {e}"
 
-    # ── Attempt 2: full-text search fallback ─────────────────────────────────
+    # Attempt 2: full-text search fallback
     try:
         r = requests.get(
             "https://api.scryfall.com/cards/search",

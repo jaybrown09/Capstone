@@ -29,14 +29,14 @@ def preprocess_image(image: Image.Image) -> Image.Image:
     # Crop to the top ~14% of the card where the name bar lives.
     # MTG cards follow a consistent layout so this is reliable.
     name_strip = image.crop((
-        int(w * 0.05),   # left  — skip border
-        int(h * 0.03),   # top   — skip border
-        int(w * 0.75),   # right — stop before mana cost symbols (top-right)
-        int(h * 0.14),   # bottom
+        int(w * 0.03),   # left  — skip border
+        int(h * 0.02),   # top   — skip border
+        int(w * 0.70),   # right — stop before mana cost symbols (top-right)
+        int(h * 0.12),   # bottom
     ))
 
     # Scale up — Tesseract performs significantly better on larger images
-    scale = 3
+    scale = 4
     name_strip = name_strip.resize(
         (name_strip.width * scale, name_strip.height * scale),
         Image.LANCZOS,
@@ -46,7 +46,7 @@ def preprocess_image(image: Image.Image) -> Image.Image:
     name_strip = name_strip.convert("L")
 
     # Boost contrast so the text pops against the card's textured background
-    name_strip = ImageEnhance.Contrast(name_strip).enhance(2.5)
+    name_strip = ImageEnhance.Contrast(name_strip).enhance(3.0)
 
     # Sharpen edges
     name_strip = name_strip.filter(ImageFilter.SHARPEN)

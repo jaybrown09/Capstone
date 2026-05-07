@@ -404,7 +404,7 @@ with tab_pkm:
         # Random card
         if pkm_random_btn:
             with st.spinner("Catching one in the tall grass..."):
-                rand_card, err = pokewallet.get_random_pokemon()
+                rand_card, err = pokewalletHelpers.get_random_pokemon()
                 if err:
                     st.error(err)
                 elif rand_card:
@@ -414,7 +414,7 @@ with tab_pkm:
         # Search
         if pkm_search_btn and pkm_search_query.strip():
             with st.spinner("Searching the Pokédex..."):
-                results, err = pokewallet.search_pokemon_list(pkm_search_query.strip())
+                results, err = pokewalletHelpers.search_pokemon_list(pkm_search_query.strip())
                 if err:
                     st.error(err)
                 elif len(results) == 1:
@@ -433,8 +433,8 @@ with tab_pkm:
                 unsafe_allow_html=True,
             )
             names = [
-                f"{pokewallet.get_pokemon_name(c)} "
-                f"({pokewallet.get_pokemon_set_name(c) or '?'} · {pokewallet.get_pokemon_rarity(c)})"
+                f"{pokewalletHelpers.get_pokemon_name(c)} "
+                f"({pokewalletHelpers.get_pokemon_set_name(c) or '?'} · {pokewalletHelpers.get_pokemon_rarity(c)})"
                 for c in st.session_state.pkm_search_results
             ]
             choice = st.selectbox("", names, label_visibility="collapsed", key="pkm_choice")
@@ -485,7 +485,7 @@ with tab_pkm:
                         st.session_state.pkm_search_results = []
                         st.session_state.pkm_scan_ocr_text = ocr_text
                         st.success(
-                            f'Scanned: **{pokewallet.get_pokemon_name(card)}** _(OCR read: "{ocr_text}")_'
+                            f'Scanned: **{pokewalletHelpers.get_pokemon_name(card)}** _(OCR read: "{ocr_text}")_'
                         )
 
         st.markdown("---")
@@ -499,7 +499,7 @@ with tab_pkm:
                 # Fetch image bytes through the authenticated proxy
                 card_id = card.get("id", "")
                 if card_id:
-                    img_bytes, img_err = pokewallet.fetch_pokemon_image_bytes(card_id, size="high")
+                    img_bytes, img_err = pokewalletHelpers.fetch_pokemon_image_bytes(card_id, size="high")
                     if img_bytes:
                         st.image(img_bytes, use_container_width=True)
                     else:
@@ -510,15 +510,15 @@ with tab_pkm:
                         )
 
             with info_col:
-                name = pokewallet.get_pokemon_name(card)
+                name = pokewalletHelpers.get_pokemon_name(card)
                 st.markdown(f'<div class="card-name">{name}</div>', unsafe_allow_html=True)
 
-                type_line = pokewallet.get_pokemon_type_line(card)
+                type_line = pokewalletHelpers.get_pokemon_type_line(card)
                 if type_line:
                     st.markdown(f'<div class="card-type">{type_line}</div>', unsafe_allow_html=True)
 
                 # Attacks + abilities (mirrors oracle text loop)
-                body = pokewallet.format_attacks(card)
+                body = pokewalletHelpers.format_attacks(card)
                 if body:
                     for line in body.split("\n"):
                         if line.strip():
@@ -546,21 +546,21 @@ with tab_pkm:
                         unsafe_allow_html=True,
                     )
 
-                rarity = pokewallet.get_pokemon_rarity(card)
-                set_name = pokewallet.get_pokemon_set_name(card)
+                rarity = pokewalletHelpers.get_pokemon_rarity(card)
+                set_name = pokewalletHelpers.get_pokemon_set_name(card)
                 card_number = info.get("card_number", "")
                 num_str = f" · #{card_number}" if card_number else ""
 
                 st.markdown(f"""
                     <div class="card-meta" style="margin-top:1rem;">
-                        Rarity: <span class="{pokewallet.rarity_class(rarity)}">{rarity}</span>
+                        Rarity: <span class="{pokewalletHelpers.rarity_class(rarity)}">{rarity}</span>
                         &nbsp;·&nbsp; Set: <span>{set_name or '—'}</span>
                         {num_str}
                     </div>
                 """, unsafe_allow_html=True)
 
                 # Prices (TCGPlayer USD with CardMarket EUR fallback)
-                normal_price, holo_price = pokewallet.get_pokemon_market_price(card)
+                normal_price, holo_price = pokewalletHelpers.get_pokemon_market_price(card)
                 if normal_price or holo_price:
                     price_parts = []
                     if normal_price:
@@ -679,7 +679,7 @@ with tab_pkm:
             for i, item in enumerate(filtered):
                 rarity = item.get("rarity") or "Common"
                 holo_tag = " ✦" if item.get("holo") else ""
-                r_class = pokewallet.rarity_class(rarity)
+                r_class = pokewalletHelpers.rarity_class(rarity)
 
                 # Build the type line for the collection list
                 type_bits = []

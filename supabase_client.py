@@ -216,7 +216,7 @@ def _cache_pokemon_image(card_id: str) -> Optional[str]:
     Returns the public URL on success, or None on any failure (caller
     falls back to a placeholder).
     """
-    from pokewallet import fetch_pokemon_image_bytes
+    from pokewalletHelpers import fetch_pokemon_image_bytes
 
     # Sanitise — Supabase storage paths can't have certain chars
     safe_name = f"{card_id}.jpg"

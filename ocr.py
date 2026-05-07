@@ -2,7 +2,8 @@
 ocr.py
 ------
 Tesseract OCR pipeline for SmartBinder card scanning.
-Handles image preprocessing, OCR extraction, and Scryfall fuzzy resolution.
+Handles image preprocessing, OCR extraction, and Scryfall/PokéWallet
+fuzzy resolution. Supports both MTG and Pokémon cards.
 """
 
 from __future__ import annotations
@@ -11,6 +12,7 @@ import re
 import requests
 import numpy as np
 import cv2
+
 from typing import Optional
 from PIL import Image, ImageFilter, ImageEnhance, ExifTags
 import pytesseract
@@ -21,7 +23,6 @@ if os.name == 'nt':
 
 
 # ── Card Detection ────────────────────────────────────────────────────────────
-
 def find_card_crop(pil_image: Image.Image) -> Image.Image:
     img = np.array(pil_image.convert("RGB"))
     gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
@@ -31,11 +32,11 @@ def find_card_crop(pil_image: Image.Image) -> Image.Image:
     edges = cv2.dilate(edges, kernel, iterations=1)
 
     contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    
+
     img_area = pil_image.width * pil_image.height
     best = None
     best_score = float('inf')
-    
+
     for c in contours:
         x, y, w, h = cv2.boundingRect(c)
         area = w * h
@@ -48,17 +49,15 @@ def find_card_crop(pil_image: Image.Image) -> Image.Image:
         if score < best_score:
             best_score = score
             best = (x, y, w, h)
-    
+
     # Only accept if ratio is within 20% of expected
     if best and best_score < 0.20:
         x, y, w, h = best
         return pil_image.crop((x, y, x + w, y + h))
-    
     return pil_image
 
 
 # ── Glare Removal ─────────────────────────────────────────────────────────────
-
 def remove_glare(img: Image.Image) -> Image.Image:
     """
     Clip very bright pixels to reduce specular hotspots on foil/glossy cards.
@@ -69,10 +68,8 @@ def remove_glare(img: Image.Image) -> Image.Image:
     return Image.fromarray(arr.astype(np.uint8))
 
 
-# ── Image Preprocessing ───────────────────────────────────────────────────────
-
-def preprocess_image(image: Image.Image) -> Image.Image:
-    # Fix EXIF rotation (iPhone photos are often sideways)
+# ── EXIF rotation (shared helper) ─────────────────────────────────────────────
+def _fix_exif_rotation(image: Image.Image) -> Image.Image:
     try:
         for orientation in ExifTags.TAGS.keys():
             if ExifTags.TAGS[orientation] == 'Orientation':
@@ -87,6 +84,12 @@ def preprocess_image(image: Image.Image) -> Image.Image:
                 image = image.rotate(90, expand=True)
     except Exception:
         pass
+    return image
+
+
+# ── MTG Image Preprocessing (unchanged) ───────────────────────────────────────
+def preprocess_image(image: Image.Image) -> Image.Image:
+    image = _fix_exif_rotation(image)
 
     # Step 1: Detect and crop to just the card itself
     image = find_card_crop(image)
@@ -103,6 +106,36 @@ def preprocess_image(image: Image.Image) -> Image.Image:
         int(h * 0.10),
     ))
 
+    return _process_name_strip(name_strip)
+
+
+# ── Pokémon Image Preprocessing (new) ─────────────────────────────────────────
+def preprocess_pokemon_image(image: Image.Image) -> Image.Image:
+    """
+    Pokémon cards put the name in a banner across the very top, with HP
+    in the upper-right corner and an evolution badge sometimes in the
+    upper-left. We crop a horizontal strip biased toward the centre-left
+    to skip the badge but include the full name, and stop before HP.
+    """
+    image = _fix_exif_rotation(image)
+    image = find_card_crop(image)
+
+    w, h = image.size
+
+    # Pokémon name banner: roughly the top 4–9% of the card height,
+    # 12–70% across (skip the evolution circle on the left, stop before HP).
+    name_strip = image.crop((
+        int(w * 0.12),
+        int(h * 0.04),
+        int(w * 0.70),
+        int(h * 0.10),
+    ))
+
+    return _process_name_strip(name_strip)
+
+
+# ── Shared name-strip processing (extracted from preprocess_image) ────────────
+def _process_name_strip(name_strip: Image.Image) -> Image.Image:
     # Step 3: Upscale for better OCR resolution
     scale = 4
     name_strip = name_strip.resize(
@@ -132,59 +165,77 @@ def preprocess_image(image: Image.Image) -> Image.Image:
 
 
 # ── OCR Extraction ────────────────────────────────────────────────────────────
+def _run_ocr(processed: Image.Image) -> str:
+    """Run two-pass Tesseract (normal + inverted) and return whichever
+    pass produced more text. Shared between MTG and Pokémon."""
+    config = "--psm 7 --oem 3 -c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789\\ "
+
+    raw1 = pytesseract.image_to_string(processed, config=config)
+    inverted = Image.fromarray(255 - np.array(processed))
+    raw2 = pytesseract.image_to_string(inverted, config=config)
+
+    return raw1 if len(raw1.strip()) >= len(raw2.strip()) else raw2
+
 
 def extract_card_name(image: Image.Image) -> tuple[str, Optional[str]]:
     """
-    Run Tesseract on a raw card image.
+    Run Tesseract on a raw MTG card image.
     Returns (extracted_name, error_message).
     """
     try:
         processed = preprocess_image(image)
-
-        config = "--psm 7 --oem 3 -c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789\\ "
-
-        # Pass 1: normal image
-        raw1 = pytesseract.image_to_string(processed, config=config)
-
-        # Pass 2: inverted image — helps when card has light text on dark background
-        inverted = Image.fromarray(255 - np.array(processed))
-        raw2 = pytesseract.image_to_string(inverted, config=config)
-
-        # Pick whichever pass returned more text
-        raw = raw1 if len(raw1.strip()) >= len(raw2.strip()) else raw2
-
+        raw = _run_ocr(processed)
         cleaned = _clean_ocr_output(raw)
         if not cleaned:
             return "", "OCR returned no readable text. Try better lighting or a flatter angle."
-
         return cleaned, None
-
     except pytesseract.TesseractNotFoundError:
-        return "", (
-            "Tesseract is not installed or not on PATH. "
-            "Install it with: sudo apt install tesseract-ocr  (Linux) "
-            "or brew install tesseract  (macOS). "
-            "On Streamlit Cloud, add 'tesseract-ocr' to packages.txt."
-        )
+        return "", _tesseract_install_msg()
     except Exception as e:
         return "", f"OCR error: {e}"
+
+
+def extract_pokemon_card_name(image: Image.Image) -> tuple[str, Optional[str]]:
+    """
+    Run Tesseract on a raw Pokémon card image.
+    Returns (extracted_name, error_message).
+    """
+    try:
+        processed = preprocess_pokemon_image(image)
+        raw = _run_ocr(processed)
+        cleaned = _clean_ocr_output(raw)
+        if not cleaned:
+            return "", "OCR returned no readable text. Try better lighting or a flatter angle."
+        return cleaned, None
+    except pytesseract.TesseractNotFoundError:
+        return "", _tesseract_install_msg()
+    except Exception as e:
+        return "", f"OCR error: {e}"
+
+
+def _tesseract_install_msg() -> str:
+    return (
+        "Tesseract is not installed or not on PATH. "
+        "Install it with: sudo apt install tesseract-ocr (Linux) "
+        "or brew install tesseract (macOS). "
+        "On Streamlit Cloud, add 'tesseract-ocr' to packages.txt."
+    )
 
 
 def _clean_ocr_output(raw: str) -> str:
     """Strip noise from Tesseract output and return a normalised card name."""
     text = raw.strip()
-    # Keep only characters that appear in real MTG card names (including digits)
+    # Keep only characters that appear in real card names (including digits)
     text = re.sub(r"[^A-Za-z0-9 ,'\-]", "", text)
     # Collapse multiple spaces
     text = re.sub(r" +", " ", text).strip()
     # Take only the first line — name is always the first line
     text = text.splitlines()[0].strip() if text else ""
-    # Title-case so Scryfall fuzzy matching gets a clean signal
+    # Title-case so fuzzy matching gets a clean signal
     return text.title()
 
 
-# ── Scryfall Fuzzy Resolution ─────────────────────────────────────────────────
-
+# ── Scryfall Fuzzy Resolution (MTG, unchanged) ────────────────────────────────
 def resolve_card_name(name: str) -> tuple[Optional[dict], Optional[str]]:
     """
     Resolve an OCR'd card name to a full Scryfall card object.
@@ -206,7 +257,6 @@ def resolve_card_name(name: str) -> tuple[Optional[dict], Optional[str]]:
             return r.json(), None
         if r.status_code != 404:
             return None, r.json().get("details", "Scryfall error.")
-
     except requests.RequestException as e:
         return None, f"Network error: {e}"
 
@@ -222,21 +272,32 @@ def resolve_card_name(name: str) -> tuple[Optional[dict], Optional[str]]:
             if data:
                 return data[0], None
         return None, f'No card found for "{name}". Try adjusting the scan or search manually.'
-
     except requests.RequestException as e:
         return None, f"Network error: {e}"
 
 
-# ── Public entry point ────────────────────────────────────────────────────────
-
+# ── Public entry points ───────────────────────────────────────────────────────
 def scan_card_image(image: Image.Image) -> tuple[Optional[dict], str, Optional[str]]:
+    """MTG scan entry point. Returns (card, ocr_text, error)."""
     name, err = extract_card_name(image)
     if err:
         return None, name, err
-
-    # Reject if OCR result looks like noise
     if len(name.strip()) < 3 or len(name.strip().split()) > 8:
         return None, name, "Couldn't read the card name clearly. Try holding it closer and flatter."
-
     card, err = resolve_card_name(name)
+    return card, name, err
+
+
+def scan_pokemon_card_image(image: Image.Image) -> tuple[Optional[dict], str, Optional[str]]:
+    """Pokémon scan entry point. Returns (card, ocr_text, error)."""
+    # Imported here to avoid a hard dependency cycle if pokewallet.py is
+    # ever loaded before streamlit secrets are available.
+    from pokewalletHelpers import resolve_pokemon_name
+
+    name, err = extract_pokemon_card_name(image)
+    if err:
+        return None, name, err
+    if len(name.strip()) < 3 or len(name.strip().split()) > 8:
+        return None, name, "Couldn't read the card name clearly. Try holding it closer and flatter."
+    card, err = resolve_pokemon_name(name)
     return card, name, err
